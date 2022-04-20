@@ -8,7 +8,7 @@ from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error as mse
 from cryptoapp.prepare import join_df
-from cryptoapp.data import upload_file
+from cryptoapp.download import upload_file
 import investpy
 import os
 
@@ -237,7 +237,7 @@ for token in tokens:
     var_list.append(token)
     y_label = y_mark + token
     try:
-        df = pd.read_csv('bc_test.csv')
+        df = join_df(var_list)
         test = backward_selection_model(df, y_label=y_label)
         prediction = test.get_prediction()
         res.append(prediction)
@@ -245,6 +245,6 @@ for token in tokens:
         print(f'cannot find the token ({token}) record')
     print("--- %s seconds ---" % (time.time() - start_time))
 pres = pd.concat(res, ignore_index=True)
-pres.to_csv('predictions.csv')
+pres.to_csv('data/price_data/predictions.csv')
 print('final mission completed')
 print(f'cannot find the token ({token}) record')

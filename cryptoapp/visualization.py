@@ -7,8 +7,9 @@ from sklearn.linear_model import LassoCV
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error as mse
-from cryptoapp.data import upload_file
+from cryptoapp.download import upload_file
 import investpy
+import time
 
 
 # settings
@@ -189,17 +190,6 @@ class backward_selection_model:
         prediction = model.fittedvalues
         true_y = self.dataframe[self.y_label].values
         date = self.dataframe.index
-        print('Date lenght: ', len(date))
-        print('Prediction length: ', len(prediction))
-        print('upper lenght: ', len(upper))
-        print('lower lenght: ', len(lower))
-        print('ture lenght: ', len(true_y))
-        print('df lenght', len(self.dataframe))
-        print('dx lenght', len(self.X))
-        print(self.X)
-        print(summary)
-
-
         Ys = pd.DataFrame({'Date': date, 'True_v': true_y, 'Prediction': prediction, 'Upper_p': upper, 'Lower': lower})
         Ys['Targets'] = self.y_label
         Ys = Ys.reset_index(drop = True)
@@ -221,37 +211,99 @@ class backward_selection_model:
         upload_file(filename, bucket_path = bucket_path)
 
 
-#test_path = 'https://raw.githubusercontent.com/Carloszone/Cryptocurrency_Research_project/main/datasets/test.csv'
-#df = pd.read_csv(test_path, parse_dates = ['Date']).set_index('Date')
+def filter_df(merged_df, var_list):
+    ind = merged_df.Name.isin(var_list)
+    return merged_df[ind]
 
-import time
+def pivot_df(df):
+    return df.pivot(index='Date', columns='Name', values=['Open', 'High', 'Low', 'Close'])
+
+def validation_df(input, summary = False):
+    df = input.copy()
+    # na check
+    missing = df.isna().sum().sort_values(ascending=False)
+    percent_missing = ((missing / df.isnull().count()) * 100).sort_values(ascending=False)
+    missing_df = pd.concat([missing, percent_missing], axis=1, keys=['Total', 'Percent'], sort=False)
+
+    # fill na
+    columns = list(missing_df[missing_df['Total'] >= 1].reset_index()['index'])
+
+    for col in columns:
+        null_index = df.index[df[col].isnull() == True].tolist()
+        null_index.sort()
+        for ind in null_index:
+            if ind > 0:
+                df.loc[ind, col] = df.loc[ind - 1, col]
+            if ind == 0:
+                df.loc[ind, col] = 0
+
+    # outliers check
+    count = []
+    for col in df.columns:
+        count.append(sum(df[col] > df[col].mean() + 2 * df[col].std()) + sum(df[col] < df[col].mean() - 2 * df[col].std()))
+    outliers_df = pd.DataFrame({'Columns': df.columns, 'Count': count}).sort_values(by = 'Count')
+
+    if summary == True:
+        print('missing value check:/n')
+        print(missing_df)
+        print('/n outliers check:/n')
+        print(outliers_df)
+
+    return df
+
+def join_df(var_list):
+    merged_price_df = pd.concat([p1_df, p2_df, p3_df, index_df, commodity_df], ignore_index=True)
+    merged_price_df = filter_df(merged_price_df, var_list)
+    merged_price_df = pivot_df(merged_price_df)
+
+    merged_price_df.columns =merged_price_df.columns.map('.'.join)
+    merged_price_df = merged_price_df.reset_index()
+
+    transaction_df['Date'] = pd.to_datetime(transaction_df['Date'], format = '%Y-%m-%d')
+    merged_price_df['Date'] = pd.to_datetime(merged_price_df['Date'], format = '%Y-%m-%d')
+
+    joined_df = transaction_df.merge(merged_price_df, how = 'left', on = 'Date')
+    joined_df = validation_df(joined_df)
+    joined_df = joined_df.set_index('Date')
+    return joined_df
+
+
+transaction_df = pd.read_csv('../cryptoapp/data/transaction_data/transaction_df.csv')
+p1_df = pd.read_csv('../cryptoapp/data/price_data/1_token_df.csv')
+p2_df = pd.read_csv('../cryptoapp/data/price_data/2_token_df.csv')
+p3_df = pd.read_csv('../cryptoapp/data/price_data/3_token_df.csv')
+index_df = pd.read_csv('../cryptoapp/data/price_data/index_df.csv')
+commodity_df = pd.read_csv('../cryptoapp/data/price_data/commodity_df.csv')
+
+
+var_list = ['S&P 500', 'Nasdaq', 'DJ Composite', 'Gold', 'Copper', 'Silver', 'Crude Oil WTI', 'Natural Gas']
+df = join_df(var_list)
+
 start_time = time.time()
 res = []
 count = 1
 total = len(tokens)
 for token in tokens:
     print(f'Now processing {token} {count}/{total}')
-    var_list = ['S&P 500', 'Nasdaq', 'DJ Composite', 'Gold', 'Copper', 'Silver', 'Crude Oil WTI', 'Natural Gas']
     count += 1
     var_list.append(token)
     y_label = y_mark + token
     try:
-        df = pd.read_csv('bc_test.csv')
+        df = join_df(var_list)
         test = backward_selection_model(df, y_label=y_label)
         prediction = test.get_prediction()
         res.append(prediction)
     except:
         print(f'cannot find the token ({token}) record')
+
+    var_list.pop()
     print("--- %s seconds ---" % (time.time() - start_time))
 pres = pd.concat(res, ignore_index=True)
+print(pres.head())
 pres.to_csv('predictions.csv')
 print('final mission completed')
 print(f'cannot find the token ({token}) record')
 
-def join_df(var_list):
-    transaction_df = pd.read_csv()
-    p1_df = pd.read_csv()
-    p2_df = pd.read_csv()
-    p3_df = pd.read_csv()
-    index_df = pd.read_csv()
-    commodity_df = pd.read_csv()
+
+
+
